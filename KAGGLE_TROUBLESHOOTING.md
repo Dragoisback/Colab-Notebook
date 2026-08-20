@@ -110,6 +110,57 @@ with **two fallbacks**: if `share=True` fails → retry `share=False` on 7860, t
 ### 18) Hugging Face 403 / timeout via `hf-mirror.com`
 **Fix:** Explicit `HF_ENDPOINT="https://huggingface.co"` (official) and `HF_HUB_ENABLE_HF_TRANSFER=1` for fast stable downloads. Retry loops (3 attempts) for both processor and model with `time.sleep`.
 
+### 19) `ImportError: cannot import name '_center' from 'numpy._core.umath'` — Step 2 / Step 3 crash (transformers → sklearn → scipy → numpy)
+**Your traceback:**
+```
+from transformers import AutoModel, AutoProcessor
+...
+from sklearn.metrics import roc_curve
+from scipy.sparse import ...
+ImportError: cannot import name '_center' from 'numpy._core.umath'
+```
+**Cause:** Broken `numpy` / `scipy` / `scikit-learn` compatibility chain. This happens when:
+- Kaggle/Colab image has `scipy` compiled for `numpy==1.x` but Cell 2 installed `numpy==2.1.0` (or vice-versa) without upgrading `scipy`
+- `numpy==2.2+` removed private symbol `_center`, but an older `scipy` still tries to import it
+- Pip's `pip install -q --no-cache-dir ... scipy` without `--upgrade` keeps the stale incompatible build, so `from transformers import ...` triggers `sklearn -> scipy -> numpy` and crashes in Cell 3
+
+**Fix (in this fork):**
+Cell 2 now:
+1. Tests the import chain `numpy -> scipy -> sklearn -> roc_curve` BEFORE installing transformers
+2. Force-reinstalls a **known compatible stack**:
+   - **Stack A (preferred, Python 3.12 / modern Colab/Kaggle):** `numpy==2.1.3`, `scipy==1.15.3`, `scikit-learn==1.6.1`
+   - **Stack B (legacy fallback):** `numpy==1.26.4`, `scipy==1.14.1`, `scikit-learn==1.5.2`
+3. Uses `--force-reinstall --no-cache-dir --upgrade` so stale wheels are purged
+4. After installing `transformers`, re-enforces the same stack (transformers can pull an incompatible scipy)
+5. Final verification prints `✅ ...` for each library and does a test `from transformers import AutoModel` → if it still fails, prompts Kernel → Restart
+
+Cell 3 now has a **pre-flight guard**:
+```python
+try:
+    from scipy.sparse import csr_matrix
+    from sklearn.metrics import roc_curve
+except ImportError:
+    pip install --force-reinstall numpy==1.26.4 scipy==1.14.1 scikit-learn==1.5.2
+```
+
+**If you still see it (manual fix):**
+```bash
+!pip install -q --force-reinstall --no-cache-dir "numpy==2.1.3" "scipy==1.15.3" "scikit-learn==1.6.1"
+# Or fallback:
+!pip install -q --force-reinstall --no-cache-dir "numpy==1.26.4" "scipy==1.14.1" "scikit-learn==1.5.2"
+```
+Then **Kernel → Restart & Clear Outputs → Run All**.
+
+Why `2.1.3` not `2.2+`? `numpy 2.2` removed `_center`; pinning to `2.1.3` keeps the symbol and stays compatible with `scipy 1.15.x`.
+
+### 20) Step 2 hangs or Step 3 still fails after numpy fix
+**Cause:** Partial pip install left mixed files (e.g., `numpy/_core` from 2.2 + `umath.py` from 2.1)
+**Fix:**
+- Kernel → Restart before Cell 2 if you previously had a failed Cell 2
+- Cell 2 now does aggressive purge: `pip uninstall -y numpy scipy scikit-learn` then reinstall
+- If on Colab with Python 3.12, Internet ON may still be off → Cell 1 will warn `Hugging Face connectivity failed`
+- Ensure disk free >20GB: Cell 3 prints `Disk free at /kaggle/tmp` — if <5GB, delete `/kaggle/tmp/hf_cache` and re-run
+
 ---
 
 ## Still Seeing Errors?
