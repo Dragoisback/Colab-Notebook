@@ -21,7 +21,7 @@ Created by **AIQUEST Academy** · Powered by `OpenMOSS-Team/MOSS-TTS-v1.5`
 
 ## Fixes in This Fork
 
-This fork fixes ~18 Kaggle-specific crashes (see `KAGGLE_TROUBLESHOOTING.md` for full list):
+This fork fixes ~20 Kaggle-specific crashes (see `KAGGLE_TROUBLESHOOTING.md` for full list), including the critical `ImportError: _center from numpy._core.umath` (numpy 2.2 vs scipy mismatch):
 
 - **Disk full** → cache redirected to `/kaggle/tmp/hf_cache` (70 GB scratch) + `mkdir -p` + disk-free prints
 - **psutil missing**, **ffmpeg missing** (apt + sudo fallback), **torch reinstall loop** (smart skip if torch≥2.4)
